@@ -1,5 +1,4 @@
 import sqlite3
-import bcrypt
 import logging
 import os
 import csv
@@ -7,6 +6,43 @@ import time
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator, ValidationError
 import re
+
+# Cloud Database Support for Render & Supabase
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if DATABASE_URL:
+    import psycopg
+
+class PGConnectionWrapper:
+    def __init__(self, conn):
+        self.conn = conn
+        self.cursor = conn.cursor()
+    def execute(self, query, params=None):
+        pg_query = query.replace('?', '%s')
+        if params:
+            self.cursor.execute(pg_query, params)
+        else:
+            self.cursor.execute(pg_query)
+        return self.cursor
+    def commit(self):
+        self.conn.commit()
+    def fetchone(self):
+        return self.cursor.fetchone()
+    def fetchall(self):
+        return self.cursor.fetchall()
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.cursor.close()
+        self.conn.close()
+
+def get_db(db_name="hardware_inventory.db"):
+    if DATABASE_URL:
+        conn = psycopg.connect(DATABASE_URL)
+        return PGConnectionWrapper(conn)
+    else:
+        conn = sqlite3.connect(db_name, timeout=20)
+        conn.row_factory = sqlite3.Row
+        return conn
 
 def setup_logger():
     log_dir = "app_logging"
@@ -40,27 +76,28 @@ class UserSchema(BaseModel):
         return v
 
 def init_db(db_name="hardware_inventory.db"):
-    with sqlite3.connect(db_name, timeout=20) as conn:
-        conn.execute("PRAGMA journal_mode=WAL;") 
-        cursor = conn.cursor()
+    with get_db(db_name) as conn:
+        if not DATABASE_URL:
+            conn.execute("PRAGMA journal_mode=WAL;") 
+        cursor = conn.cursor() if DATABASE_URL else conn.cursor()
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, email TEXT UNIQUE NOT NULL,
+                id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, email TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL, role TEXT NOT NULL, failed_attempts INTEGER DEFAULT 0, is_locked INTEGER DEFAULT 0
             )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS password_resets (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, email TEXT NOT NULL,
+                id SERIAL PRIMARY KEY, username TEXT NOT NULL, email TEXT NOT NULL,
                 desired_password TEXT NOT NULL, status TEXT DEFAULT 'PENDING'
             )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS hardware (
-                item_id INTEGER PRIMARY KEY AUTOINCREMENT, item_name TEXT NOT NULL, category TEXT NOT NULL,
+                item_id SERIAL PRIMARY KEY, item_name TEXT NOT NULL, category TEXT NOT NULL,
                 total_qty INTEGER NOT NULL, available_qty INTEGER NOT NULL, unit_price REAL NOT NULL, status TEXT NOT NULL
             )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS borrow_logs (
-                log_id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, item_id INTEGER NOT NULL,
+                log_id SERIAL PRIMARY KEY, username TEXT NOT NULL, item_id INTEGER NOT NULL,
                 item_name TEXT NOT NULL, qty_borrowed INTEGER NOT NULL, total_liability REAL NOT NULL,
                 borrow_date TEXT NOT NULL, status TEXT DEFAULT 'BORROWED'
             )""")
@@ -78,19 +115,21 @@ class AuthController:
             
         hashed_pw = bcrypt.hashpw(validated.password.encode('utf-8'), bcrypt.gensalt())
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 conn.execute("INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)", 
                                (validated.username, validated.email, hashed_pw.decode('utf-8'), role))
                 conn.commit()
                 logger.info(f"Account registered: '{validated.username}'")
                 return True, "Registration successful! You may now log in."
-        except sqlite3.IntegrityError: return False, "Username or Email already taken."
-        except Exception as e: return False, f"System Error: {e}"
+        except Exception as e: 
+            if "duplicate key" in str(e) or "IntegrityError" in str(e):
+                return False, "Username or Email already taken."
+            return False, f"System Error: {e}"
 
     def login_user(self, username, password):
         if not username or not password: return False, "Please enter both fields.", None, False, None
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 row = conn.execute("SELECT password_hash, is_locked, failed_attempts, role, email FROM users WHERE username = ?", (username,)).fetchone()
                 if not row: return False, "Invalid credentials.", None, False, None
                 db_hash, is_locked, attempts, role, email = row
@@ -116,7 +155,7 @@ class AuthController:
         try: UserSchema(username=username, email=email, password=new_password)
         except ValidationError as e: return False, e.errors()[0]['msg']
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 if not conn.execute("SELECT 1 FROM users WHERE username = ? AND email = ?", (username, email)).fetchone():
                     return False, "Account details do not match."
                 hashed_pw = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt())
@@ -128,7 +167,7 @@ class AuthController:
 
     def change_password_direct(self, username, email, current_pw, new_pw):
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 row = conn.execute("SELECT password_hash FROM users WHERE username = ?", (username,)).fetchone()
                 if not row or not bcrypt.checkpw(current_pw.encode('utf-8'), row[0].encode('utf-8')):
                     return False, "Current password is incorrect."
@@ -142,14 +181,14 @@ class AuthController:
 
     def get_pending_resets(self):
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 return conn.execute("SELECT id, username, email, status FROM password_resets WHERE status = 'PENDING'").fetchall()
         except Exception: return []
 
     def process_bulk_resets(self, request_ids, approve=True):
         count = 0
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 for rid in request_ids:
                     if approve:
                         res = conn.execute("SELECT desired_password, username FROM password_resets WHERE id = ?", (rid,)).fetchone()
@@ -177,7 +216,7 @@ class InventoryController:
     def get_categories(self):
         common_cats = ["Actuator", "Connectivity", "Display", "IC/Chip", "Microcontroller", "Passive", "Power", "Sensor", "Tools"]
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 data = conn.execute("SELECT DISTINCT category FROM hardware ORDER BY category").fetchall()
                 db_cats = [row[0] for row in data]
                 return ["ALL"] + sorted(list(set(common_cats + db_cats)))
@@ -185,7 +224,7 @@ class InventoryController:
 
     def get_all_items(self, search_text="", category="ALL"):
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 query = "SELECT * FROM hardware WHERE 1=1"
                 params = []
                 if category and category != "ALL":
@@ -199,7 +238,7 @@ class InventoryController:
 
     def get_total_valuation(self):
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 total = conn.execute("SELECT SUM(total_qty * unit_price) FROM hardware").fetchone()[0]
                 return total if total else 0.0
         except Exception: return 0.0
@@ -210,7 +249,7 @@ class InventoryController:
         if qty < 0 or price < 0: return False, "Quantity and Price cannot be negative."
         status = self.compute_status(qty)
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 if conn.execute("SELECT 1 FROM hardware WHERE LOWER(item_name) = LOWER(?)", (name,)).fetchone():
                     return False, "Component name already exists."
                 conn.execute("INSERT INTO hardware (item_name, category, total_qty, available_qty, unit_price, status) VALUES (?, ?, ?, ?, ?, ?)", 
@@ -225,7 +264,7 @@ class InventoryController:
         if qty <= 0: return False, "Please enter a value greater than 0."
 
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 row = conn.execute("SELECT total_qty, available_qty FROM hardware WHERE item_id = ?", (item_id,)).fetchone()
                 if not row: return False, "Item not found."
                 
@@ -250,7 +289,7 @@ class InventoryController:
         if new_price < 0: return False, "Price cannot be negative."
         
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 conn.execute("UPDATE hardware SET unit_price = ? WHERE item_id = ?", (new_price, item_id))
                 conn.commit()
                 return True, "Price updated."
@@ -258,7 +297,7 @@ class InventoryController:
 
     def delete_bulk_items(self, item_ids):
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 for item_id in item_ids:
                     conn.execute("DELETE FROM hardware WHERE item_id = ?", (item_id,))
                 conn.commit()
@@ -267,7 +306,7 @@ class InventoryController:
 
     def borrow_item(self, username, item_id, qty):
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 row = conn.execute("SELECT item_name, available_qty, unit_price FROM hardware WHERE item_id = ?", (item_id,)).fetchone()
                 if not row: return False, "Component not found."
                 item_name, avail, price = row[0], row[1], row[2]
@@ -284,7 +323,7 @@ class InventoryController:
     def process_bulk_borrows(self, loan_ids, approve=True):
         count = 0
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 for lid in loan_ids:
                     log = conn.execute("SELECT item_id, qty_borrowed FROM borrow_logs WHERE log_id = ? AND status = 'PENDING_BORROW'", (lid,)).fetchone()
                     if log:
@@ -308,7 +347,7 @@ class InventoryController:
     def request_bulk_item_returns(self, loan_ids):
         count = 0
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 for lid in loan_ids:
                     conn.execute("UPDATE borrow_logs SET status = 'RETURN_PENDING' WHERE log_id = ? AND status = 'BORROWED'", (lid,))
                     count += 1
@@ -319,7 +358,7 @@ class InventoryController:
     def process_bulk_returns(self, loan_ids, approve=True):
         count = 0
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 for lid in loan_ids:
                     log = conn.execute("SELECT item_id, qty_borrowed FROM borrow_logs WHERE log_id = ? AND status = 'RETURN_PENDING'", (lid,)).fetchone()
                     if log:
@@ -340,43 +379,43 @@ class InventoryController:
 
     def get_user_active_loans(self, username):
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 return conn.execute("SELECT * FROM borrow_logs WHERE username = ? AND status = 'BORROWED' ORDER BY log_id DESC", (username,)).fetchall()
         except Exception: return []
 
     def get_user_pending_borrows(self, username):
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 return conn.execute("SELECT * FROM borrow_logs WHERE username = ? AND status = 'PENDING_BORROW' ORDER BY log_id DESC", (username,)).fetchall()
         except Exception: return []
 
     def get_user_loan_history(self, username):
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 return conn.execute("SELECT * FROM borrow_logs WHERE username = ? ORDER BY log_id DESC", (username,)).fetchall()
         except Exception: return []
 
     def get_pending_borrows(self):
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 return conn.execute("SELECT * FROM borrow_logs WHERE status = 'PENDING_BORROW' ORDER BY log_id DESC").fetchall()
         except Exception: return []
 
     def get_pending_returns(self):
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 return conn.execute("SELECT * FROM borrow_logs WHERE status = 'RETURN_PENDING' ORDER BY log_id DESC").fetchall()
         except Exception: return []
 
     def get_all_loans_history(self):
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 return conn.execute("SELECT * FROM borrow_logs ORDER BY log_id DESC").fetchall()
         except Exception: return []
 
     def export_to_csv(self, username):
         try:
-            with sqlite3.connect(self.db_name, timeout=20) as conn:
+            with get_db(self.db_name) as conn:
                 rows = conn.execute("SELECT * FROM hardware").fetchall()
                 with open("inventory_report.csv", "w", newline="", encoding="utf-8") as f:
                     writer = csv.writer(f)
