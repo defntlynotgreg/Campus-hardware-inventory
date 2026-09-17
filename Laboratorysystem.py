@@ -6,6 +6,15 @@ import time
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator, ValidationError
 import re
+import socket
+import bcrypt
+
+# Force IPv4 to bypass IPv6 routing issues on cloud servers
+old_getaddrinfo = socket.getaddrinfo
+def new_getaddrinfo(*args, **kwargs):
+    responses = old_getaddrinfo(*args, **kwargs)
+    return [r for r in responses if r[0] == socket.AF_INET]
+socket.getaddrinfo = new_getaddrinfo
 
 # Cloud Database Support for Render & Supabase
 DATABASE_URL = os.environ.get("DATABASE_URL")
