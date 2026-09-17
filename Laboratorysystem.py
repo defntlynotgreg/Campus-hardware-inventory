@@ -10,7 +10,7 @@ import socket
 import bcrypt
 import urllib.parse as up
 
-# Cloud Database Support for Render & Supabase (Force IPv4 Resolution)
+# Cloud Database Support for Render & Supabase (Force Direct IPv4 String Replacement)
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if DATABASE_URL:
     import psycopg
@@ -18,10 +18,13 @@ if DATABASE_URL:
         parsed_url = up.urlparse(DATABASE_URL)
         hostname = parsed_url.hostname
         if hostname:
-            ipv4_address = socket.gethostbyname(hostname)
+            # Force resolution specifically to IPv4 (AF_INET)
+            addr_info = socket.getaddrinfo(hostname, parsed_url.port or 5432, socket.AF_INET, socket.SOCK_STREAM)
+            ipv4_address = addr_info[0][4][0]
+            # Rewrite URL hostname to the raw IPv4 address so psycopg cannot use IPv6
             DATABASE_URL = DATABASE_URL.replace(hostname, ipv4_address)
     except Exception as e:
-        print(f"IPv4 resolution note: {e}")
+        print(f"IPv4 resolution override note: {e}")
 
 class PGConnectionWrapper:
     def __init__(self, conn):
