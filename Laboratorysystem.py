@@ -385,14 +385,5 @@ class InventoryController:
                 return True, "Successfully exported to inventory_report.csv"
         except Exception as e: return False, str(e)
 
-
-# DESKTOP ONLY — retained for the original desktop version
-class ModernApp(tk.Tk):
-    def __init__(self):
-        super().__init__()
-        self.title("NU Engineering Lab Equipment Tracker")
-        self.geometry("400x200")
-        tk.Label(self, text="Desktop Interface Disabled.\nPlease use the Web Portal.", font=("Arial", 14)).pack(expand=True)
-
 if __name__ == "__main__":
     init_db()
