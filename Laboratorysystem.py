@@ -8,18 +8,20 @@ from pydantic import BaseModel, Field, field_validator, ValidationError
 import re
 import socket
 import bcrypt
+import urllib.parse as up
 
-# Force IPv4 to bypass IPv6 routing issues on cloud servers
-old_getaddrinfo = socket.getaddrinfo
-def new_getaddrinfo(*args, **kwargs):
-    responses = old_getaddrinfo(*args, **kwargs)
-    return [r for r in responses if r[0] == socket.AF_INET]
-socket.getaddrinfo = new_getaddrinfo
-
-# Cloud Database Support for Render & Supabase
+# Cloud Database Support for Render & Supabase (Force IPv4 Resolution)
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if DATABASE_URL:
     import psycopg
+    try:
+        parsed_url = up.urlparse(DATABASE_URL)
+        hostname = parsed_url.hostname
+        if hostname:
+            ipv4_address = socket.gethostbyname(hostname)
+            DATABASE_URL = DATABASE_URL.replace(hostname, ipv4_address)
+    except Exception as e:
+        print(f"IPv4 resolution note: {e}")
 
 class PGConnectionWrapper:
     def __init__(self, conn):
