@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Campus Hardware Inventory{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header class="navbar">
+        <div class="brand">Campus Hardware Inventory</div>
+        <div class="user-nav">
+            {% if session.get('username') %}
+                <span>Logged in: <strong>{{ session.get('username') }}</strong> ({{ session.get('role') }})</span>
+                <a href="{{ url_for('logout') }}" class="btn btn-danger" style="margin-left: 15px;">Logout</a>
+            {% endif %}
+        </div>
+    </header>
+    <main class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, msg in messages %}
+                    <div class="alert alert-{{ category }}">{{ msg }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+    </main>
+    <script>
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('toggle-password')) {
+                const input = e.target.previousElementSibling;
+                if (input.type === 'password') {
+                    input.type = 'text';
+                    e.target.textContent = 'HIDE';
+                } else {
+                    input.type = 'password';
+                    e.target.textContent = 'SHOW';
+                }
+            }
+        });
+    </script>
+</body>
+</html>

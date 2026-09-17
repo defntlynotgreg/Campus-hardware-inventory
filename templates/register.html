@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="auth-box">
+    <h2>Register Account</h2>
+    <form method="POST" action="{{ url_for('register') }}">
+        <div class="form-group">
+            <label>Username</label>
+            <input type="text" name="username" required>
+        </div>
+        <div class="form-group">
+            <label>Email Address</label>
+            <input type="email" name="email" required>
+        </div>
+        <div class="form-group">
+            <label>Password</label>
+            <div class="pwd-wrapper">
+                <input type="password" name="password" required>
+                <span class="toggle-password">SHOW</span>
+            </div>
+            <small class="text-muted">Min 8 chars, uppercase, number, special char.</small>
+        </div>
+        <div class="form-group">
+            <label>Account Role</label>
+            <select name="role">
+                <option value="USER">USER</option>
+                <option value="ADMIN">ADMIN</option>
+            </select>
+        </div>
+        <button type="submit" class="btn btn-success" style="width: 100%;">Register</button>
+    </form>
+    <div class="auth-links">
+        <a href="{{ url_for('login') }}">Back to Login</a>
+    </div>
+</div>
+{% endblock %}

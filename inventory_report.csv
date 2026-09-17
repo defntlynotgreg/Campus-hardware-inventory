@@ -1,0 +1,11 @@
+ID,Item Name,Category,Total Qty,Available Qty,Unit Price,Status
+1,10k Ohm Resistor,Passive,500,500,0.05,Available
+2,100uF Capacitor,Passive,300,300,0.1,Available
+3,Red LED 5mm,Display,250,250,0.05,Available
+4,Arduino Uno R3,Microcontroller,15,15,25.0,Available
+5,Solderless Breadboard,Prototyping,5,5,5.0,Low Stock
+6,Male-to-Male Jumper Wire,Connectivity,500,500,0.01,Available
+7,5V DC Motor,Actuator,0,0,3.5,Out of Stock
+8,DHT11 Temperature Sensor,Sensor,40,40,1.5,Available
+9,9V Battery,Power,60,60,2.0,Available
+10,Digital Multimeter,Tools,15,15,15.0,Available

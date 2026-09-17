@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="auth-box">
+    <h2>Password Recovery</h2>
+    <form method="POST" action="{{ url_for('reset_request') }}">
+        <div class="form-group">
+            <label>Locked Username</label>
+            <input type="text" name="username" required>
+        </div>
+        <div class="form-group">
+            <label>Registered Email</label>
+            <input type="email" name="email" required>
+        </div>
+        <div class="form-group">
+            <label>Desired New Password</label>
+            <div class="pwd-wrapper">
+                <input type="password" name="new_password" required>
+                <span class="toggle-password">SHOW</span>
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Confirm New Password</label>
+            <div class="pwd-wrapper">
+                <input type="password" name="confirm_password" required>
+                <span class="toggle-password">SHOW</span>
+            </div>
+        </div>
+        <button type="submit" class="btn btn-warning" style="width: 100%;">Submit Request</button>
+    </form>
+    <div class="auth-links">
+        <a href="{{ url_for('login') }}">Back to Login</a>
+    </div>
+</div>
+{% endblock %}

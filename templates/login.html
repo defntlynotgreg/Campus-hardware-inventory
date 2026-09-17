@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="auth-box">
+    <h2>Account Login</h2>
+    <form method="POST" action="{{ url_for('login') }}">
+        <div class="form-group">
+            <label>Username</label>
+            <input type="text" name="username" value="{{ locked_username if locked else '' }}" required>
+        </div>
+        <div class="form-group">
+            <label>Password</label>
+            <div class="pwd-wrapper">
+                <input type="password" name="password" required>
+                <span class="toggle-password">SHOW</span>
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Sign In</button>
+    </form>
+    <div class="auth-links">
+        <a href="{{ url_for('register') }}">Create an Account</a> | 
+        <a href="{{ url_for('reset_request') }}">Forgot Password / Unlock</a>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="summary-cards">
+    <div class="card">
+        <h3>Total Stocks</h3>
+        <p class="card-val">{{ total_stocks }}</p>
+    </div>
+    <div class="card">
+        <h3>Account Role</h3>
+        <p class="card-val">{{ session.get('role') }}</p>
+    </div>
+</div>
+
+<section class="section-box">
+    <h2>Hardware Catalog</h2>
+    <form method="GET" action="{{ url_for('dashboard') }}" class="filter-row" style="margin-bottom: 15px;">
+        <input type="text" name="search" placeholder="Search hardware..." value="{{ search }}">
+        <select name="category">
+            {% for cat in categories %}
+                <option value="{{ cat }}" {% if cat == selected_category %}selected{% endif %}>{{ cat }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary">Search</button>
+    </form>
+
+    {% if session.get('role') == 'ADMIN' %}
+    <form method="POST" action="{{ url_for('admin_delete') }}">
+    {% endif %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    {% if session.get('role') == 'ADMIN' %}<th>Select</th>{% endif %}
+                    <th>ID</th>
+                    <th>Item Name</th>
+                    <th>Category</th>
+                    <th>Available</th>
+                    <th>Total</th>
+                    <th>Price</th>
+                    <th>Status</th>
+                    {% if session.get('role') == 'USER' %}<th>Action</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for itm in items %}
+                <tr>
+                    {% if session.get('role') == 'ADMIN' %}
+                    <td><input type="checkbox" name="item_ids" value="{{ itm[0] }}"></td>
+                    {% endif %}
+                    <td>#{{ itm[0] }}</td>
+                    <td>{{ itm[1] }}</td>
+                    <td>{{ itm[2] }}</td>
+                    <td>{{ itm[4] }}</td>
+                    <td>{{ itm[3] }}</td>
+                    <td>${{ "{:,.2f}".format(itm[5]) }}</td>
+                    <td><span class="badge status-{{ itm[6]|lower|replace(' ', '') }}">{{ itm[6] }}</span></td>
+                    
+                    {% if session.get('role') == 'USER' %}
+                    <td>
+                        {% if itm[4] > 0 %}
+                        <!-- Inline Single-Item Borrow Form -->
+                        <form method="POST" action="{{ url_for('borrow') }}" style="display:inline; margin:0;">
+                            <input type="hidden" name="item_id" value="{{ itm[0] }}">
+                            <input type="number" name="quantity" min="1" max="{{ itm[4] }}" value="1" style="width: 50px; padding: 4px;">
+                            <button type="submit" class="btn btn-success" style="padding: 4px 8px; font-size: 12px; margin-left: 5px;">Request Borrow</button>
+                        </form>
+                        {% else %}
+                        <span class="text-muted">Unavailable</span>
+                        {% endif %}
+                    </td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% if session.get('role') == 'ADMIN' %}
+        <div style="margin-top: 15px;">
+            <button type="submit" class="btn btn-danger">Delete Selected Items</button>
+            <a href="{{ url_for('export') }}" class="btn btn-secondary" style="float: right;">Export to CSV</a>
+        </div>
+    </form>
+    {% endif %}
+</section>
+
+{% if session.get('role') == 'ADMIN' %}
+<section class="section-box">
+    <h2>Manage Inventory Stock & Price</h2>
+    <form method="POST" action="{{ url_for('admin_update') }}" class="filter-row">
+        <input type="number" name="item_id" placeholder="Target Item ID (e.g. 1)" required style="width: 180px;">
+        <input type="number" name="qty" placeholder="Qty to Add/Deduct" min="1" style="width: 150px;">
+        <button type="submit" name="action" value="ADD" class="btn btn-success">+ Add</button>
+        <button type="submit" name="action" value="DEDUCT" class="btn btn-warning">- Deduct</button>
+        <span style="margin: 0 10px;">|</span>
+        <input type="number" name="price" step="0.01" min="0" placeholder="New Price ($)" style="width: 130px;">
+        <button type="submit" name="action" value="PRICE" class="btn btn-secondary">Update Price</button>
+    </form>
+</section>
+
+<section class="section-box">
+    <h2>Register New Component</h2>
+    <form method="POST" action="{{ url_for('admin_add') }}" class="filter-row">
+        <input type="text" name="item_name" placeholder="Item Name" required>
+        <input type="text" name="category" placeholder="Category" required>
+        <input type="number" name="quantity" placeholder="Qty" min="0" required style="width: 80px;">
+        <input type="number" name="unit_price" placeholder="Price" step="0.01" min="0" required style="width: 80px;">
+        <button type="submit" class="btn btn-success">Add to Lab</button>
+    </form>
+</section>
+
+<section class="section-box">
+    <h2>Pending Borrow Requests</h2>
+    <form method="POST" action="{{ url_for('admin_borrow_action') }}">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Select</th><th>Log ID</th><th>Student</th><th>Item</th><th>Qty</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for b in pending_borrows %}
+                <tr>
+                    <td><input type="checkbox" name="loan_ids" value="{{ b[0] }}"></td>
+                    <td>LOG-{{ b[0] }}</td><td>{{ b[1] }}</td><td>{{ b[3] }}</td><td>{{ b[4] }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div style="margin-top: 10px;">
+            <button type="submit" name="action" value="approve" class="btn btn-success">Approve Borrow</button>
+            <button type="submit" name="action" value="reject" class="btn btn-danger">Reject</button>
+        </div>
+    </form>
+</section>
+
+<section class="section-box">
+    <h2>Pending Returns</h2>
+    <form method="POST" action="{{ url_for('admin_return_action') }}">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Select</th><th>Log ID</th><th>Student</th><th>Item</th><th>Qty</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for b in pending_returns %}
+                <tr>
+                    <td><input type="checkbox" name="loan_ids" value="{{ b[0] }}"></td>
+                    <td>LOG-{{ b[0] }}</td><td>{{ b[1] }}</td><td>{{ b[3] }}</td><td>{{ b[4] }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div style="margin-top: 10px;">
+            <button type="submit" name="action" value="approve" class="btn btn-success">Approve Return</button>
+            <button type="submit" name="action" value="reject" class="btn btn-danger">Reject</button>
+        </div>
+    </form>
+</section>
+
+<section class="section-box">
+    <h2>Security Approvals (Password Resets)</h2>
+    <form method="POST" action="{{ url_for('admin_reset_action') }}">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Select</th><th>Req ID</th><th>Username</th><th>Email</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in pending_resets %}
+                <tr>
+                    <td><input type="checkbox" name="request_ids" value="{{ r[0] }}"></td>
+                    <td>REQ-{{ r[0] }}</td><td>{{ r[1] }}</td><td>{{ r[2] }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div style="margin-top: 10px;">
+            <button type="submit" name="action" value="approve" class="btn btn-success">Approve & Unlock</button>
+            <button type="submit" name="action" value="reject" class="btn btn-danger">Reject</button>
+        </div>
+    </form>
+</section>
+{% endif %}
+
+{% if session.get('role') == 'USER' %}
+<section class="section-box">
+    <h2>My Pending Borrow Requests</h2>
+    <table class="data-table">
+        <thead>
+            <tr><th>Log ID</th><th>Item</th><th>Qty</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+            {% for loan in pending_borrow_requests %}
+            <tr>
+                <td>LOG-{{ loan[0] }}</td><td>{{ loan[3] }}</td><td>{{ loan[4] }}</td><td>{{ loan[7] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<section class="section-box">
+    <h2>My Borrowed Items</h2>
+    <form method="POST" action="{{ url_for('return_request') }}">
+        <table class="data-table">
+            <thead>
+                <tr><th>Select</th><th>Log ID</th><th>Item</th><th>Qty</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+                {% for loan in active_loans %}
+                <tr>
+                    <td><input type="checkbox" name="loan_ids" value="{{ loan[0] }}"></td>
+                    <td>LOG-{{ loan[0] }}</td><td>{{ loan[3] }}</td><td>{{ loan[4] }}</td><td>{{ loan[7] }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div style="margin-top: 10px;">
+            <button type="submit" class="btn btn-warning">Request Return</button>
+        </div>
+    </form>
+</section>
+
+<section class="section-box">
+    <h2>Update Password Directly</h2>
+    <form method="POST" action="{{ url_for('change_password') }}">
+        <div class="form-group" style="max-width: 400px;">
+            <label>Current Password:</label>
+            <div class="pwd-wrapper">
+                <input type="password" name="old_password" required>
+                <span class="toggle-password">SHOW</span>
+            </div>
+        </div>
+        <div class="form-group" style="max-width: 400px;">
+            <label>New Password:</label>
+            <div class="pwd-wrapper">
+                <input type="password" name="new_password" required>
+                <span class="toggle-password">SHOW</span>
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-top: 10px;">Update Password</button>
+    </form>
+</section>
+{% endif %}
+{% endblock %}
