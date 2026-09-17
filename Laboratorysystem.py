@@ -49,9 +49,32 @@ class PGConnectionWrapper:
         self.cursor.close()
         self.conn.close()
 
+import urllib.parse as up
+
 def get_db(db_name="hardware_inventory.db"):
     if DATABASE_URL:
-        conn = psycopg.connect(DATABASE_URL)
+        parsed_url = up.urlparse(DATABASE_URL)
+        hostname = parsed_url.hostname
+        port = parsed_url.port or 5432
+        username = parsed_url.username
+        password = parsed_url.password
+        dbname = parsed_url.path.lstrip('/')
+        
+        # Explicitly resolve hostname to an IPv4 address (AF_INET)
+        try:
+            addr_info = socket.getaddrinfo(hostname, port, socket.AF_INET, socket.SOCK_STREAM)
+            ipv4_address = addr_info[0][4][0]
+        except Exception:
+            ipv4_address = hostname  # Fallback if lookup fails
+
+        # Connect using explicit parameters to force IPv4 and bypass internal DNS lookup
+        conn = psycopg.connect(
+            host=ipv4_address,
+            port=port,
+            dbname=dbname,
+            user=username,
+            password=password
+        )
         return PGConnectionWrapper(conn)
     else:
         conn = sqlite3.connect(db_name, timeout=20)
