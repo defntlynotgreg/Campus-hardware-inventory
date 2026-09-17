@@ -1,6 +1,4 @@
 import sqlite3
-import tkinter as tk
-from tkinter import ttk, messagebox
 import bcrypt
 import logging
 import os
@@ -9,12 +7,6 @@ import time
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator, ValidationError
 import re
-
-try:
-    import ctypes
-    ctypes.windll.shcore.SetProcessDpiAwareness(1)
-except Exception:
-    pass 
 
 def setup_logger():
     log_dir = "app_logging"
@@ -404,5 +396,3 @@ class ModernApp(tk.Tk):
 
 if __name__ == "__main__":
     init_db()
-    app = ModernApp()
-    app.mainloop()
