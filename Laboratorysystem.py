@@ -88,23 +88,22 @@ def init_db(db_name="hardware_inventory.db"):
     with get_db(db_name) as conn:
         if not DATABASE_URL:
             conn.execute("PRAGMA journal_mode=WAL;") 
-        cursor = conn.cursor() if DATABASE_URL else conn.cursor()
-        cursor.execute("""
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, email TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL, role TEXT NOT NULL, failed_attempts INTEGER DEFAULT 0, is_locked INTEGER DEFAULT 0
             )""")
-        cursor.execute("""
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS password_resets (
                 id SERIAL PRIMARY KEY, username TEXT NOT NULL, email TEXT NOT NULL,
                 desired_password TEXT NOT NULL, status TEXT DEFAULT 'PENDING'
             )""")
-        cursor.execute("""
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS hardware (
                 item_id SERIAL PRIMARY KEY, item_name TEXT NOT NULL, category TEXT NOT NULL,
                 total_qty INTEGER NOT NULL, available_qty INTEGER NOT NULL, unit_price REAL NOT NULL, status TEXT NOT NULL
             )""")
-        cursor.execute("""
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS borrow_logs (
                 log_id SERIAL PRIMARY KEY, username TEXT NOT NULL, item_id INTEGER NOT NULL,
                 item_name TEXT NOT NULL, qty_borrowed INTEGER NOT NULL, total_liability REAL NOT NULL,
