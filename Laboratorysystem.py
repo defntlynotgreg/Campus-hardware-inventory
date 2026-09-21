@@ -6,25 +6,12 @@ import time
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator, ValidationError
 import re
-import socket
 import bcrypt
-import urllib.parse as up
 
-# Cloud Database Support for Render & Supabase (Force Direct IPv4 String Replacement)
+# Cloud Database Support for Render & Supabase
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if DATABASE_URL:
     import psycopg
-    try:
-        parsed_url = up.urlparse(DATABASE_URL)
-        hostname = parsed_url.hostname
-        if hostname:
-            # Force resolution specifically to IPv4 (AF_INET)
-            addr_info = socket.getaddrinfo(hostname, parsed_url.port or 5432, socket.AF_INET, socket.SOCK_STREAM)
-            ipv4_address = addr_info[0][4][0]
-            # Rewrite URL hostname to the raw IPv4 address so psycopg cannot use IPv6
-            DATABASE_URL = DATABASE_URL.replace(hostname, ipv4_address)
-    except Exception as e:
-        print(f"IPv4 resolution override note: {e}")
 
 class PGConnectionWrapper:
     def __init__(self, conn):
@@ -49,32 +36,10 @@ class PGConnectionWrapper:
         self.cursor.close()
         self.conn.close()
 
-import urllib.parse as up
-
 def get_db(db_name="hardware_inventory.db"):
     if DATABASE_URL:
-        parsed_url = up.urlparse(DATABASE_URL)
-        hostname = parsed_url.hostname
-        port = parsed_url.port or 5432
-        username = parsed_url.username
-        password = parsed_url.password
-        dbname = parsed_url.path.lstrip('/')
-        
-        # Explicitly resolve hostname to an IPv4 address (AF_INET)
-        try:
-            addr_info = socket.getaddrinfo(hostname, port, socket.AF_INET, socket.SOCK_STREAM)
-            ipv4_address = addr_info[0][4][0]
-        except Exception:
-            ipv4_address = hostname  # Fallback if lookup fails
-
-        # Connect using explicit parameters to force IPv4 and bypass internal DNS lookup
-        conn = psycopg.connect(
-            host=ipv4_address,
-            port=port,
-            dbname=dbname,
-            user=username,
-            password=password
-        )
+        # Connect normally; Render's env variable now handles the IPv4 routing
+        conn = psycopg.connect(DATABASE_URL)
         return PGConnectionWrapper(conn)
     else:
         conn = sqlite3.connect(db_name, timeout=20)
