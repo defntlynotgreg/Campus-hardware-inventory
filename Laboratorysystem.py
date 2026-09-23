@@ -13,6 +13,9 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 if DATABASE_URL:
     import psycopg
 
+# Global variable to hold our persistent cloud connection
+_persistent_conn = None
+
 class PGConnectionWrapper:
     def __init__(self, conn):
         self.conn = conn
@@ -34,13 +37,17 @@ class PGConnectionWrapper:
         return self
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.cursor.close()
-        self.conn.close()
+        # Do NOT close the connection if we are on the cloud so we can reuse it
+        if not DATABASE_URL:
+            self.conn.close()
 
 def get_db(db_name="hardware_inventory.db"):
+    global _persistent_conn
     if DATABASE_URL:
-        # Connect normally; Render's env variable now handles the IPv4 routing
-        conn = psycopg.connect(DATABASE_URL)
-        return PGConnectionWrapper(conn)
+        # Reuse the existing connection if it is open, instead of creating a new one
+        if _persistent_conn is None or _persistent_conn.closed:
+            _persistent_conn = psycopg.connect(DATABASE_URL)
+        return PGConnectionWrapper(_persistent_conn)
     else:
         conn = sqlite3.connect(db_name, timeout=20)
         conn.row_factory = sqlite3.Row
