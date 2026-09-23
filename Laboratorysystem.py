@@ -231,18 +231,22 @@ class InventoryController:
         except Exception: return ["ALL"] + common_cats
 
     def get_all_items(self, search_text="", category="ALL"):
-        try:
-            with get_db(self.db_name) as conn:
-                query = "SELECT * FROM hardware WHERE 1=1"
-                params = []
-                if category and category != "ALL":
-                    query += " AND category = ?"
-                    params.append(category)
-                if search_text:
-                    query += " AND (item_name LIKE ? OR category LIKE ?)"
-                    params.extend([f"%{search_text}%", f"%{search_text}%"])
-                return conn.execute(query, params).fetchall()
-        except Exception: return []
+    try:
+        with get_db(self.db_name) as conn:
+            query = "SELECT * FROM hardware WHERE 1=1"
+            params = []
+            if category and category != "ALL":
+                query += " AND category = ?"
+                params.append(category)
+            if search_text:
+                query += " AND (item_name LIKE ? OR category LIKE ?)"
+                params.extend([f"%{search_text}%", f"%{search_text}%"])
+            
+            # Force the table to always sort by ID numerically
+            query += " ORDER BY item_id ASC"
+            
+            return conn.execute(query, params).fetchall()
+    except Exception: return []
 
     def get_total_valuation(self):
         try:
