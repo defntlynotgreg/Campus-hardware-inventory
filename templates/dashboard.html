@@ -180,6 +180,48 @@
         </div>
     </form>
 </section>
+
+<section class="section-box">
+    <h2>Admin Action History</h2>
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Log ID</th>
+                    <th>Admin User</th>
+                    <th>Action Type</th>
+                    <th>Details</th>
+                    <th>Timestamp</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in audit_logs %}
+                <tr>
+                    <td>#{{ log[0] }}</td>
+                    <td><strong>{{ log[1] }}</strong></td>
+                    <td>
+                        {% if 'APPROVE' in log[2] %}
+                            <span class="badge status-available">{{ log[2] }}</span>
+                        {% elif 'REJECT' in log[2] %}
+                            <span class="badge status-outofstock">{{ log[2] }}</span>
+                        {% else %}
+                            <span class="badge status-lowstock">{{ log[2] }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ log[3] }}</td>
+                    <td><small class="text-muted">{{ log[4] }}</small></td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" style="text-align: center; padding: 20px; color: #666;">
+                        No administrative actions have been recorded yet.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
 {% endif %}
 
 {% if session.get('role') == 'USER' %}

@@ -112,6 +112,7 @@ def dashboard():
     
     active_loans, history, pending_returns = [], [], []
     pending_borrows, pending_borrow_requests, all_loans, pending_resets = [], [], [], []
+    audit_logs = []
     
     if session["role"] == "USER":
         active_loans = inv_ctrl.get_user_active_loans(session["username"])
@@ -122,15 +123,16 @@ def dashboard():
         pending_borrows = inv_ctrl.get_pending_borrows()
         all_loans = inv_ctrl.get_all_loans_history()
         pending_resets = auth_ctrl.get_pending_resets()
+        audit_logs = inv_ctrl.get_admin_audit_logs()
         
     return render_template(
         "dashboard.html", items=items, categories=categories, search=search,
         selected_category=category, total_stocks=total_stocks, active_loans=active_loans,
         history=history, pending_returns=pending_returns, pending_borrows=pending_borrows,
-        pending_borrow_requests=pending_borrow_requests, all_loans=all_loans, pending_resets=pending_resets
+        pending_borrow_requests=pending_borrow_requests, all_loans=all_loans, 
+        pending_resets=pending_resets, audit_logs=audit_logs
     )
 
-# Baseline Single-Item Borrow Route
 @app.route("/borrow", methods=["POST"])
 @login_required
 def borrow():
@@ -235,7 +237,7 @@ def admin_borrow_action():
     approve = (request.form.get("action") == "approve")
     loan_ids = [int(x) for x in raw_ids if x.isdigit()]
     
-    ok, msg = inv_ctrl.process_bulk_borrows(loan_ids, approve=approve)
+    ok, msg = inv_ctrl.process_bulk_borrows(session["username"], loan_ids, approve=approve)
     flash(msg, "success" if ok else "danger")
     return redirect(url_for("dashboard"))
 
@@ -246,7 +248,7 @@ def admin_return_action():
     approve = (request.form.get("action") == "approve")
     loan_ids = [int(x) for x in raw_ids if x.isdigit()]
     
-    ok, msg = inv_ctrl.process_bulk_returns(loan_ids, approve=approve)
+    ok, msg = inv_ctrl.process_bulk_returns(session["username"], loan_ids, approve=approve)
     flash(msg, "success" if ok else "danger")
     return redirect(url_for("dashboard"))
 
@@ -257,7 +259,7 @@ def admin_reset_action():
     approve = (request.form.get("action") == "approve")
     request_ids = [int(x) for x in raw_ids if x.isdigit()]
     
-    ok, msg = auth_ctrl.process_bulk_resets(request_ids, approve=approve)
+    ok, msg = auth_ctrl.process_bulk_resets(session["username"], request_ids, approve=approve)
     flash(msg, "success" if ok else "danger")
     return redirect(url_for("dashboard"))
 
