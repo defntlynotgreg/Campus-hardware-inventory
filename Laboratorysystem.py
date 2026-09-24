@@ -109,6 +109,11 @@ def init_db(db_name="hardware_inventory.db"):
                 item_name TEXT NOT NULL, qty_borrowed INTEGER NOT NULL, total_liability REAL NOT NULL,
                 borrow_date TEXT NOT NULL, status TEXT DEFAULT 'BORROWED'
             )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS admin_audit_logs (
+                log_id SERIAL PRIMARY KEY, admin_username TEXT NOT NULL, action_type TEXT NOT NULL,
+                details TEXT NOT NULL, timestamp TEXT NOT NULL
+            )""")
         conn.commit()
 
 class AuthController:
@@ -193,20 +198,29 @@ class AuthController:
                 return conn.execute("SELECT id, username, email, status FROM password_resets WHERE status = 'PENDING'").fetchall()
         except Exception: return []
 
-    def process_bulk_resets(self, request_ids, approve=True):
+    def process_bulk_resets(self, admin_username, request_ids, approve=True):
         count = 0
         try:
             with get_db(self.db_name) as conn:
+                date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                action_type = "APPROVE_RESET" if approve else "REJECT_RESET"
+                
                 for rid in request_ids:
                     if approve:
                         res = conn.execute("SELECT desired_password, username FROM password_resets WHERE id = ?", (rid,)).fetchone()
                         if res:
                             conn.execute("UPDATE users SET password_hash = ?, is_locked = 0, failed_attempts = 0 WHERE username = ?", (res[0], res[1]))
                             conn.execute("UPDATE password_resets SET status = 'APPROVED' WHERE id = ?", (rid,))
+                            conn.execute("INSERT INTO admin_audit_logs (admin_username, action_type, details, timestamp) VALUES (?, ?, ?, ?)",
+                                         (admin_username, action_type, f"Approved password reset for user: {res[1]}", date_now))
                             count += 1
                     else:
-                        conn.execute("UPDATE password_resets SET status = 'REJECTED' WHERE id = ?", (rid,))
-                        count += 1
+                        res = conn.execute("SELECT username FROM password_resets WHERE id = ?", (rid,)).fetchone()
+                        if res:
+                            conn.execute("UPDATE password_resets SET status = 'REJECTED' WHERE id = ?", (rid,))
+                            conn.execute("INSERT INTO admin_audit_logs (admin_username, action_type, details, timestamp) VALUES (?, ?, ?, ?)",
+                                         (admin_username, action_type, f"Rejected password reset for user: {res[0]}", date_now))
+                            count += 1
                 conn.commit()
                 return True, f"Processed {count} password reset requests."
         except Exception as e: return False, str(e)
@@ -242,9 +256,7 @@ class InventoryController:
                     query += " AND (item_name LIKE ? OR category LIKE ?)"
                     params.extend([f"%{search_text}%", f"%{search_text}%"])
                 
-                # Force the table to always sort by ID numerically
                 query += " ORDER BY item_id ASC"
-                
                 return conn.execute(query, params).fetchall()
         except Exception: return []
 
@@ -332,25 +344,34 @@ class InventoryController:
                 return True, f"Borrow request for {qty}x {item_name} submitted to Admin."
         except Exception as e: return False, str(e)
 
-    def process_bulk_borrows(self, loan_ids, approve=True):
+    def process_bulk_borrows(self, admin_username, loan_ids, approve=True):
         count = 0
         try:
             with get_db(self.db_name) as conn:
+                date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                action_type = "APPROVE_BORROW" if approve else "REJECT_BORROW"
+                
                 for lid in loan_ids:
-                    log = conn.execute("SELECT item_id, qty_borrowed FROM borrow_logs WHERE log_id = ? AND status = 'PENDING_BORROW'", (lid,)).fetchone()
+                    log = conn.execute("SELECT item_id, qty_borrowed, username FROM borrow_logs WHERE log_id = ? AND status = 'PENDING_BORROW'", (lid,)).fetchone()
                     if log:
-                        item_id, qty = log[0], log[1]
+                        item_id, qty, target_user = log[0], log[1], log[2]
                         if approve:
-                            hw = conn.execute("SELECT available_qty FROM hardware WHERE item_id = ?", (item_id,)).fetchone()
+                            hw = conn.execute("SELECT available_qty, item_name FROM hardware WHERE item_id = ?", (item_id,)).fetchone()
                             if hw and hw[0] >= qty:
                                 new_avail = hw[0] - qty
                                 conn.execute("UPDATE hardware SET available_qty = ?, status = ? WHERE item_id = ?", (new_avail, self.compute_status(new_avail), item_id))
                                 conn.execute("UPDATE borrow_logs SET status = 'BORROWED' WHERE log_id = ?", (lid,))
+                                conn.execute("INSERT INTO admin_audit_logs (admin_username, action_type, details, timestamp) VALUES (?, ?, ?, ?)",
+                                             (admin_username, action_type, f"Approved borrow: {qty}x {hw[1]} for {target_user}", date_now))
                                 count += 1
                             else:
                                 conn.execute("UPDATE borrow_logs SET status = 'REJECTED' WHERE log_id = ?", (lid,))
+                                conn.execute("INSERT INTO admin_audit_logs (admin_username, action_type, details, timestamp) VALUES (?, ?, ?, ?)",
+                                             (admin_username, "REJECT_BORROW", f"Auto-rejected borrow ID {lid} for {target_user} (Insufficient stock)", date_now))
                         else:
                             conn.execute("UPDATE borrow_logs SET status = 'REJECTED' WHERE log_id = ?", (lid,))
+                            conn.execute("INSERT INTO admin_audit_logs (admin_username, action_type, details, timestamp) VALUES (?, ?, ?, ?)",
+                                         (admin_username, action_type, f"Rejected borrow request ID {lid} for {target_user}", date_now))
                             count += 1
                 conn.commit()
                 return True, f"Processed {count} borrow requests."
@@ -367,23 +388,30 @@ class InventoryController:
                 return True, f"Requested return for {count} items."
         except Exception as e: return False, str(e)
 
-    def process_bulk_returns(self, loan_ids, approve=True):
+    def process_bulk_returns(self, admin_username, loan_ids, approve=True):
         count = 0
         try:
             with get_db(self.db_name) as conn:
+                date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                action_type = "APPROVE_RETURN" if approve else "REJECT_RETURN"
+                
                 for lid in loan_ids:
-                    log = conn.execute("SELECT item_id, qty_borrowed FROM borrow_logs WHERE log_id = ? AND status = 'RETURN_PENDING'", (lid,)).fetchone()
+                    log = conn.execute("SELECT item_id, qty_borrowed, username FROM borrow_logs WHERE log_id = ? AND status = 'RETURN_PENDING'", (lid,)).fetchone()
                     if log:
-                        item_id, qty = log[0], log[1]
+                        item_id, qty, target_user = log[0], log[1], log[2]
                         if approve:
-                            hw = conn.execute("SELECT available_qty FROM hardware WHERE item_id = ?", (item_id,)).fetchone()
+                            hw = conn.execute("SELECT available_qty, item_name FROM hardware WHERE item_id = ?", (item_id,)).fetchone()
                             if hw:
                                 new_avail = hw[0] + qty
                                 conn.execute("UPDATE hardware SET available_qty = ?, status = ? WHERE item_id = ?", (new_avail, self.compute_status(new_avail), item_id))
                                 conn.execute("UPDATE borrow_logs SET status = 'RETURNED' WHERE log_id = ?", (lid,))
+                                conn.execute("INSERT INTO admin_audit_logs (admin_username, action_type, details, timestamp) VALUES (?, ?, ?, ?)",
+                                             (admin_username, action_type, f"Approved return: {qty}x {hw[1]} from {target_user}", date_now))
                                 count += 1
                         else:
                             conn.execute("UPDATE borrow_logs SET status = 'BORROWED' WHERE log_id = ?", (lid,))
+                            conn.execute("INSERT INTO admin_audit_logs (admin_username, action_type, details, timestamp) VALUES (?, ?, ?, ?)",
+                                         (admin_username, action_type, f"Rejected return request ID {lid} from {target_user}", date_now))
                             count += 1
                 conn.commit()
                 return True, f"Processed {count} return requests."
@@ -423,6 +451,12 @@ class InventoryController:
         try:
             with get_db(self.db_name) as conn:
                 return conn.execute("SELECT * FROM borrow_logs ORDER BY log_id DESC").fetchall()
+        except Exception: return []
+
+    def get_admin_audit_logs(self):
+        try:
+            with get_db(self.db_name) as conn:
+                return conn.execute("SELECT * FROM admin_audit_logs ORDER BY log_id DESC").fetchall()
         except Exception: return []
 
     def export_to_csv(self, username):
