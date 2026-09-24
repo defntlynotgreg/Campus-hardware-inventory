@@ -20,6 +20,7 @@ class PGConnectionWrapper:
     def __init__(self, conn):
         self.conn = conn
         self.cursor = conn.cursor()
+        
     def execute(self, query, params=None):
         pg_query = query.replace('?', '%s')
         if params:
@@ -27,15 +28,24 @@ class PGConnectionWrapper:
         else:
             self.cursor.execute(pg_query)
         return self.cursor
+        
     def commit(self):
         self.conn.commit()
+        
     def fetchone(self):
         return self.cursor.fetchone()
+        
     def fetchall(self):
         return self.cursor.fetchall()
+        
     def __enter__(self):
         return self
+        
     def __exit__(self, exc_type, exc_val, exc_tb):
+        # Safety net: If an error occurred, rollback the transaction so the connection isn't poisoned
+        if exc_type is not None:
+            self.conn.rollback()
+            
         self.cursor.close()
         # Do NOT close the connection if we are on the cloud so we can reuse it
         if not DATABASE_URL:
@@ -72,10 +82,12 @@ class UserSchema(BaseModel):
     def validate_username(cls, v):
         if not re.match(r"^[a-zA-Z0-9_]+$", v): raise ValueError('Username must be alphanumeric.')
         return v
+        
     @field_validator('email')
     def validate_email(cls, v):
         if not re.match(r"[^@]+@[^@]+\.[^@]+", v): raise ValueError('Invalid email format.')
         return v
+        
     @field_validator('password')
     def validate_password(cls, v):
         if len(v) < 8: raise ValueError('Password minimum 8 chars.')
@@ -225,7 +237,6 @@ class AuthController:
                 return True, f"Processed {count} password reset requests."
         except Exception as e: return False, str(e)
 
-
 class InventoryController:
     def __init__(self, db_name="hardware_inventory.db"):
         self.db_name = db_name
@@ -256,7 +267,9 @@ class InventoryController:
                     query += " AND (item_name LIKE ? OR category LIKE ?)"
                     params.extend([f"%{search_text}%", f"%{search_text}%"])
                 
+                # Force the table to always sort by ID numerically
                 query += " ORDER BY item_id ASC"
+                
                 return conn.execute(query, params).fetchall()
         except Exception: return []
 
